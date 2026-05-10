@@ -1,0 +1,6 @@
+target
+project/project
+.bloop
+.idea
+.bsp
+.parcel-cache
