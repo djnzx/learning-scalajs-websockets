@@ -47,8 +47,8 @@ object Main extends TyrianIOApp[Msg, Model]:
     val disconnectStyle = wsBtnCls(wsConnected, "bg-red-200")
 
     val connectDisconnectV = div(cls := "flex space-x-4")(
-      button(List(onClick(Msg.WsConnect), cls := connectStyle) ++ Option.when(model.ws.isDefined)(disabled))("ws connect"),
-      button(List(onClick(Msg.WsDisconnect), cls := disconnectStyle) ++ Option.when(model.ws.isEmpty)(disabled))("ws disconnect"),
+      button(List(onClick(Msg.WsConnect), cls := connectStyle) ++ Option.when(wsConnected)(disabled))("ws connect"),
+      button(List(onClick(Msg.WsDisconnect), cls := disconnectStyle) ++ Option.when(!wsConnected)(disabled))("ws disconnect"),
       div(cls := "flex items-center space-x-1 text-sm")(
         input(
           `type` := "checkbox",

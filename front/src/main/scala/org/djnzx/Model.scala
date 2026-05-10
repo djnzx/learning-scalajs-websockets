@@ -14,7 +14,7 @@ case class Model(
   def connect(ws: WebSocket[IO]): Model = copy(ws = Some(ws))
   def disconnect: Model = copy(ws = None)
   def withInput(s: String): Model = copy(input = s)
-  def clearInput: Model = copy(input = "")
+  def clearInput: Model = withInput("")
   def withCounter: Model = copy(counters = Counter.init :: counters)
   def withoutCounter: Model = copy(counters = counters.drop(1))
   def modifyCounter(id: Int, m: Counter.Msg): Model =
