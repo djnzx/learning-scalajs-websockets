@@ -4,104 +4,90 @@ import cats.effect.IO
 import scala.scalajs.js.annotation.*
 import tyrian.*
 import tyrian.Html.*
-import tyrian.websocket.*
 
 @JSExportTopLevel("TyrianApp")
 object Main extends TyrianIOApp[Msg, Model]:
-
-  private val wsUrl = "ws://localhost:8081/ws"
 
   def router: Location => Msg = Routing.none(Msg.NoOp)
 
   def init(flags: Map[String, String]): (Model, Cmd[IO, Msg]) =
     (Model(Nil, None), Cmd.None)
 
-  def update(model: Model): Msg => (Model, Cmd[IO, Msg]) =
+  private def handleForm(model: Model): PartialFunction[Msg, (Model, Cmd[IO, Msg])] =
+    case Msg.InputChange(s) => (model.withInput(s), Cmd.None)
+    case Msg.SendMessage    =>
+      model.ws match
+        case Some(ws) => (model.withMessageOut(model.input).clearInput, ws.publish(model.input))
+        case None     => (model.copy(pendingSend = true), WsHandler.connectCmd)
 
-    case Msg.Connect =>
-      val cmd = WebSocket.connect[IO, Msg](wsUrl) {
-        case WebSocketConnect.Socket(ws) => Msg.WsOpen(ws)
-        case WebSocketConnect.Error(_)   => Msg.NoOp
-      }
-      (model, cmd)
+  private def handleCounter(model: Model): PartialFunction[Msg, (Model, Cmd[IO, Msg])] =
+    case Msg.InsertCounter        => (model.withCounter, Cmd.None)
+    case Msg.RemoveCounter        => (model.withoutCounter, Cmd.None)
+    case Msg.ModifyCounter(id, m) => (model.modifyCounter(id, m), Cmd.None)
+    case Msg.NoOp                 => (model, Cmd.None)
 
-    case Msg.WsOpen(ws) =>
-      (model.copy(ws = Some(ws)), Cmd.None)
-
-    case Msg.WsReceive(s) =>
-      (model, Cmd.None)
-
-    case Msg.Insert =>
-      (model.copy(counters = Counter.init :: model.counters), Cmd.None)
-
-    case Msg.Remove =>
-      model.counters match
-        case Nil    => (model, Cmd.None)
-        case _ :: t => (model.copy(counters = t), Cmd.None)
-
-    case Msg.Modify(id, m) =>
-      val updated = model.counters.zipWithIndex.map { case (c, i) =>
-        if i == id then Counter.update(m, c) else c
-      }
-      (model.copy(counters = updated), Cmd.None)
-
-    case Msg.NoOp => (model, Cmd.None)
+  def update(m: Model): Msg => (Model, Cmd[IO, Msg]) =
+    WsHandler.handle(m) orElse handleForm(m) orElse handleCounter(m)
 
   def view(model: Model): Html[Msg] =
-    val counters = model.counters.zipWithIndex.map { case (c, i) =>
-      Counter.view(c).map(msg => Msg.Modify(i, msg))
-    }
 
-    val elems =
-      Header.view ::
-        List(
-          div(cls := "flex space-x-4")(
-            button(onClick(Msg.Remove), cls := "px-2 bg-sky-200 rounded")(text("remove")),
-            button(onClick(Msg.Insert), cls := "px-2 bg-sky-200 rounded")(text("insert")),
-            button(onClick(Msg.Connect), cls := "px-2 bg-green-200 rounded")(text("connect ws"))
-          )
-        ) ++ counters
+    // insert, remove counter
+    val counterBtnV = div(cls := "flex space-x-4")(
+      button(onClick(Msg.InsertCounter), cls := "px-2 bg-sky-200 rounded")("insert"),
+      button(onClick(Msg.RemoveCounter), cls := "px-2 bg-sky-200 rounded")("remove"),
+    )
+
+    // ws connect, disconnect, checkbox
+    val wsConnected = model.ws.isDefined
+    def wsBtnCls(active: Boolean, color: String) = active match
+      case true  => s"px-2 rounded $color"
+      case false => "px-2 rounded bg-gray-200 text-gray-400 cursor-not-allowed"
+
+    val connectStyle = wsBtnCls(!wsConnected, "bg-green-200")
+    val disconnectStyle = wsBtnCls(wsConnected, "bg-red-200")
+
+    val connectDisconnectV = div(cls := "flex space-x-4")(
+      button(List(onClick(Msg.WsConnect), cls := connectStyle) ++ Option.when(model.ws.isDefined)(disabled))("ws connect"),
+      button(List(onClick(Msg.WsDisconnect), cls := disconnectStyle) ++ Option.when(model.ws.isEmpty)(disabled))("ws disconnect"),
+      div(cls := "flex items-center space-x-1 text-sm")(
+        input(
+          `type` := "checkbox",
+          checked(model.disconnectOnDone),
+          onClick(Msg.ToggleDisconnectOnDone),
+          cls := "cursor-pointer"
+        ),
+        span(
+          cls := "cursor-pointer",
+          onClick(Msg.ToggleDisconnectOnDone)
+        )("disconnect on 'done!'")
+      )
+    )
+
+    // input, ws send
+    val inputAndButtonV = div(cls := "flex space-x-2")(
+      input(
+        `type` := "text",
+        value := model.input,
+        onInput(s => Msg.InputChange(s)),
+        onKeyUp {
+          case k if k.key == "Enter" => Msg.SendMessage
+          case _                     => Msg.NoOp
+        },
+        cls := "border rounded px-2"
+      ),
+      button(onClick(Msg.SendMessage), cls := "px-2 bg-amber-200 rounded")("ws send")
+    )
+
+    // messages
+    val messagesV = div(cls := "space-y-1")(model.messages.map(s => p(cls := "font-mono text-sm")(s))*)
+
+    // raw counters
+    val countersV = model.counters.zipWithIndex
+      .map { case (c, i) => Counter.view(c).map(cm => Msg.ModifyCounter(i, cm)) }
+
+    val elems = Header.view :: List(counterBtnV, connectDisconnectV, inputAndButtonV, messagesV) ++ countersV
 
     div(cls := "p-4")(div(cls := "space-y-4")(elems*))
 
   def subscriptions(model: Model): Sub[IO, Msg] =
-    model.ws.fold(Sub.None) { ws =>
-      ws.subscribe {
-        case WebSocketEvent.Open        => Msg.NoOp
-        case WebSocketEvent.Receive(s)  => Msg.WsReceive(s)
-        case WebSocketEvent.Error(_)    => Msg.NoOp
-        case WebSocketEvent.Close(_, _) => Msg.NoOp
-        case WebSocketEvent.Heartbeat   => Msg.NoOp
-      }
-    }
-
-case class Model(counters: List[Counter.Model], ws: Option[WebSocket[IO]])
-
-enum Msg:
-  case Insert, Remove
-  case Modify(i: Int, msg: Counter.Msg)
-  case Connect
-  case WsOpen(ws: WebSocket[IO])
-  case WsReceive(s: String)
-  case NoOp
-
-object Counter:
-
-  opaque type Model = Int
-
-  def init: Model = 0
-
-  enum Msg:
-    case Increment, Decrement
-
-  def view(model: Model): Html[Msg] =
-    div(cls := "flex space-x-4")(
-      button(onClick(Msg.Decrement), cls := "px-2 bg-red-300 rounded")("-"),
-      p(cls := "text-lg font-medium")(model.toString),
-      button(onClick(Msg.Increment), cls := "px-2 bg-lime-300 rounded")("+")
-    )
-
-  def update(msg: Msg, model: Model): Model =
-    msg match
-      case Msg.Increment => model + 1
-      case Msg.Decrement => model - 1
+    model.ws.fold(Sub.None)(WsHandler.subscribeAndHandle)
