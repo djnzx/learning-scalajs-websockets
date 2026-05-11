@@ -6,7 +6,7 @@ import tyrian.websocket.*
 
 object WsHandler:
 
-  private val wsUrl = "ws://localhost:8081/ws"
+  private val wsUrl = s"ws://${org.scalajs.dom.window.location.hostname}:8081/ws"
 
   val connectCmd: Cmd[IO, Msg] =
     WebSocket.connect[IO, Msg](wsUrl) {
