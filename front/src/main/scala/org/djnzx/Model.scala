@@ -1,17 +1,14 @@
 package org.djnzx
 
-import cats.effect.IO
-import tyrian.websocket.WebSocket
-
 case class Model(
   counters: List[Counter.Model],
-  ws: Option[WebSocket[IO]],
+  ws: Option[WsConn],
   input: String = "",
   messages: List[String] = Nil,
   pendingSend: Boolean = false,
   disconnectOnDone: Boolean = true
 ):
-  def connect(ws: WebSocket[IO]): Model = copy(ws = Some(ws))
+  def connect(conn: WsConn): Model = copy(ws = Some(conn))
   def disconnect: Model = copy(ws = None)
   def withInput(s: String): Model = copy(input = s)
   def clearInput: Model = withInput("")

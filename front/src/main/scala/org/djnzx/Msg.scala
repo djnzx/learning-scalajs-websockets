@@ -1,8 +1,5 @@
 package org.djnzx
 
-import cats.effect.IO
-import tyrian.websocket.WebSocket
-
 enum Msg:
   // counter
   case InsertCounter
@@ -11,8 +8,7 @@ enum Msg:
   // web socket
   case WsConnect
   case WsDisconnect
-  case WsOpen(ws: WebSocket[IO])
-  case WsReady
+  case WsOpen(conn: WsConn)
   case WsReceive(s: String)
   // form
   case InputChange(ch: String)

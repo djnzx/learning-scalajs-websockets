@@ -1,18 +1,29 @@
 package org.djnzx
 
 import cats.effect.IO
+import org.http4s.Uri
+import org.http4s.client.websocket.*
+import org.http4s.dom.WebSocketClient
 import tyrian.*
-import tyrian.websocket.*
+
+final class WsConn(conn: WSConnectionHighLevel[IO], closeF: IO[Unit]):
+  def send(text: String): Cmd[IO, Msg] = Cmd.SideEffect(conn.sendText(text))
+  def disconnect: Cmd[IO, Msg] = Cmd.SideEffect(closeF)
+  def subscribe: Sub[IO, Msg] =
+    Sub.make("ws")(
+      conn.receiveStream.collect { case WSFrame.Text(data, _) => Msg.WsReceive(data): Msg }
+    )(closeF)
 
 object WsHandler:
 
-  private val wsUrl = s"ws://${org.scalajs.dom.window.location.hostname}:8081/ws"
+  private val wsUri = Uri.unsafeFromString(s"ws://${org.scalajs.dom.window.location.hostname}:8081/ws")
 
   val connectCmd: Cmd[IO, Msg] =
-    WebSocket.connect[IO, Msg](wsUrl) {
-      case WebSocketConnect.Socket(ws) => Msg.WsOpen(ws)
-      case WebSocketConnect.Error(_)   => Msg.NoOp
-    }
+    Cmd.Run(
+      WebSocketClient[IO].connectHighLevel(WSRequest(wsUri)).allocated
+        .map { case (conn, closeF) => WsConn(conn, closeF) },
+      Msg.WsOpen(_)
+    )
 
   def handle(model: Model): PartialFunction[Msg, (Model, Cmd[IO, Msg])] =
 
@@ -24,15 +35,12 @@ object WsHandler:
         case None     => model            -> Cmd.None
         case Some(ws) => model.disconnect -> ws.disconnect
 
-    case Msg.WsOpen(ws) =>
-      (model.connect(ws), Cmd.None)
+    case Msg.WsOpen(ws) if model.pendingSend && model.input.nonEmpty =>
+      val cmd = ws.send(model.input)
+      (model.connect(ws).withMessageOut(model.input).clearInput.copy(pendingSend = false), cmd)
 
-    case Msg.WsReady if model.pendingSend && model.input.nonEmpty =>
-      val cmd = model.ws.fold(Cmd.None)(_.publish(model.input))
-      (model.withMessageOut(model.input).clearInput.copy(pendingSend = false), cmd)
-
-    case Msg.WsReady =>
-      (model.copy(pendingSend = false), Cmd.None)
+    case Msg.WsOpen(conn) =>
+      (model.connect(conn).copy(pendingSend = false), Cmd.None)
 
     case Msg.WsReceive(s @ "done!") if model.disconnectOnDone =>
       val cmd = model.ws.fold(Cmd.None)(_.disconnect)
@@ -43,12 +51,3 @@ object WsHandler:
 
     case Msg.ToggleDisconnectOnDone =>
       (model.copy(disconnectOnDone = !model.disconnectOnDone), Cmd.None)
-
-  def subscribeAndHandle(ws: WebSocket[IO]): Sub[IO, Msg] =
-    ws.subscribe {
-      case WebSocketEvent.Open        => Msg.WsReady
-      case WebSocketEvent.Receive(s)  => Msg.WsReceive(s)
-      case WebSocketEvent.Error(_)    => Msg.NoOp
-      case WebSocketEvent.Close(_, _) => Msg.NoOp
-      case WebSocketEvent.Heartbeat   => Msg.NoOp
-    }

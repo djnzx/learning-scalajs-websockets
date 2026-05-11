@@ -17,7 +17,7 @@ object Main extends TyrianIOApp[Msg, Model]:
     case Msg.InputChange(s) => (model.withInput(s), Cmd.None)
     case Msg.SendMessage    =>
       model.ws match
-        case Some(ws) => (model.withMessageOut(model.input).clearInput, ws.publish(model.input))
+        case Some(ws) => (model.withMessageOut(model.input).clearInput, ws.send(model.input))
         case None     => (model.copy(pendingSend = true), WsHandler.connectCmd)
 
   private def handleCounter(model: Model): PartialFunction[Msg, (Model, Cmd[IO, Msg])] =
@@ -90,4 +90,4 @@ object Main extends TyrianIOApp[Msg, Model]:
     div(cls := "p-4")(div(cls := "space-y-4")(elems*))
 
   def subscriptions(model: Model): Sub[IO, Msg] =
-    model.ws.fold(Sub.None)(WsHandler.subscribeAndHandle)
+    model.ws.fold(Sub.None)(_.subscribe)

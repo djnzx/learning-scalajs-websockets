@@ -58,6 +58,7 @@ lazy val front = (project in file("front"))
     libraryDependencies ++= Seq(
       "io.indigoengine" %%% "tyrian-io"     % "0.14.0",
       "com.armanbilge"  %%% "fs2-dom"       % "0.3.0-M1", // window.history wrapper
+      "org.http4s"      %%% "http4s-dom"    % "0.2.12",
       "io.circe"        %%% "circe-parser"  % circeVersion,
       "io.circe"        %%% "circe-generic" % circeVersion
     )
