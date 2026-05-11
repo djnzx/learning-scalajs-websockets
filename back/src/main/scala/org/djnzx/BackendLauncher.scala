@@ -26,13 +26,14 @@ object BackendLauncher extends IOApp.Simple {
     wsHandler <- WsHandler[IO](content)
     wsRoutes  <- WsRoutes[IO](wsHandler)
     api       <- Api[IO](content)
+    cors      <- Resource.eval(CorsSettings.cors)
 
     server <- EmberServerBuilder
                 .default[IO]
                 .withHost(config.ember.host)
                 .withPort(config.ember.port)
-                .withHttpApp(CorsSettings.cors(api.endpoints.orNotFound))
-                .withHttpWebSocketApp(wsb => CorsSettings.cors(wsRoutes.routes(wsb).orNotFound))
+                .withHttpApp(cors(api.endpoints.orNotFound))
+                .withHttpWebSocketApp(wsb => cors(wsRoutes.routes(wsb).orNotFound))
                 .build
   } yield server
 
